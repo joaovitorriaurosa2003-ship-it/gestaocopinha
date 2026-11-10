@@ -461,56 +461,13 @@ function PrazoChip({ a }) { const p = prazoInfo(a); return p ? <Chip cor={p.cor}
 
 /* ===================== DADOS DE EXEMPLO (MODO DEMO) ===================== */
 function seed() {
-  const agora = Date.now();
-  const membros = {
-    m_admin: { nome: "Administrador", cargo: "Diretor", setor: "Diretoria", email: "admin@empresa.com", telefone: "", role: "admin" },
-    m_ana:   { nome: "Ana Souza", cargo: "Coordenadora", setor: "Comercial", email: "ana@empresa.com", telefone: "(16) 90000-0001", role: "gestor" },
-    m_bruno: { nome: "Bruno Lima", cargo: "Analista", setor: "Marketing", email: "bruno@empresa.com", telefone: "(16) 90000-0002", role: "executor" },
-    m_carla: { nome: "Carla Mendes", cargo: "Assistente", setor: "Financeiro", email: "carla@empresa.com", telefone: "(16) 90000-0003", role: "executor" },
-    m_diego: { nome: "Diego Rocha", cargo: "Auxiliar", setor: "Operações", email: "diego@empresa.com", telefone: "(16) 90000-0004", role: "executor" }
+  return {
+    membros: { m_admin: { nome: "Administrador", cargo: "", setor: "", email: "", telefone: "", role: "admin" } },
+    projetos: {}, atividades: {}, eventos: {}, pix: {},
+    org: { nome: "Meu Clube" }
   };
-  const projetos = {
-    p_site:   { nome: "Lançamento do site", descricao: "Novo site institucional com página de serviços.", cor: "#3b82f6", criadoEm: agora },
-    p_natal:  { nome: "Campanha de Natal", descricao: "Ações de vendas e redes sociais para dezembro.", cor: "#ef4444", criadoEm: agora },
-    p_rotina: { nome: "Rotina administrativa", descricao: "Tarefas recorrentes do administrativo.", cor: "#10b981", criadoEm: agora }
-  };
-  const base = [
-    ["Comprar materiais", "p_rotina", "m_diego", "concluida", "media", -2],
-    ["Criar post para Instagram", "p_natal", ["m_bruno", "m_diego"], "andamento", "alta", 0],
-    ["Gerar relatório de vendas", "p_rotina", "m_carla", "pendente", "urgente", -1],
-    ["Definir layout da página inicial", "p_site", "m_bruno", "andamento", "media", 3],
-    ["Revisar textos do site", "p_site", "m_ana", "pendente", "media", 5],
-    ["Planejar vitrine de Natal", "p_natal", ["m_diego", "m_bruno", "m_ana"], "pendente", "alta", 8],
-    ["Conferir contas a pagar", "p_rotina", "m_carla", "pendente", "alta", 1],
-    ["Coletar requisitos do site", "p_site", "m_ana", "concluida", "baixa", -6],
-    ["Gravar vídeo de bastidores", "p_natal", "m_bruno", "pendente", "media", 12],
-    ["Organizar estoque", "p_rotina", "m_diego", "andamento", "baixa", 4],
-    ["Fechar parceria com fornecedor", "p_natal", ["m_ana", "m_carla"], "pendente", "urgente", 2],
-    ["Publicar site no ar", "p_site", "m_admin", "pendente", "alta", 15]
-  ];
-  const atividades = {};
-  base.forEach(([titulo, projetoId, r, status, prioridade, d], i) => {
-    const ids = Array.isArray(r) ? r : [r];
-    atividades["a" + (i + 1)] = {
-      titulo, projetoId, responsavelIds: ids, responsavelId: ids[0], status, prioridade, prazo: somaDias(d), descricao: "",
-      checklist: i === 1 ? [{ id: "c1", texto: "Escrever legenda", feito: true }, { id: "c2", texto: "Separar fotos", feito: false }] : [],
-      comentarios: i === 2 ? [{ id: "k1", autorId: "m_ana", texto: "Preciso dos números até o meio-dia.", em: agora }] : [],
-      criadoPor: "m_admin", criadoEm: agora - i * 3600000, atualizadoEm: agora,
-      concluidoEm: status === "concluida" ? agora : null
-    };
-  });
-  const eventos = {
-    e1: { titulo: "Reunião de alinhamento", data: somaDias(1), hora: "09:00", descricao: "" },
-    e2: { titulo: "Apresentação de resultados", data: somaDias(5), hora: "14:00", descricao: "" },
-    e3: { titulo: "Fechamento do mês", data: somaDias(12), hora: "", descricao: "" }
-  };
-  const pix = {
-    m_bruno: { membroId: "m_bruno", tipo: "email", chave: "bruno@empresa.com", titular: "Bruno Lima", banco: "Nubank" },
-    m_carla: { membroId: "m_carla", tipo: "telefone", chave: "(16) 90000-0003", titular: "Carla Mendes", banco: "Itaú" }
-  };
-  return { membros, projetos, atividades, eventos, pix, org: { nome: "Meu Clube FC" } };
 }
-const DEMO_KEY = "meugestor_demo_v2";
+const DEMO_KEY = "meugestor_demo_v3";
 const Demo = {
   data: null, subs: {},
   load() { try { this.data = JSON.parse(localStorage.getItem(DEMO_KEY)); } catch (e) {} if (!this.data) this.data = seed(); },
@@ -1396,7 +1353,7 @@ function Config({ ctx, setDemoMembro }) {
       <div className="ch"><h3>Modo demonstração</h3></div>
       <div className="fld"><label>Ver o app como</label>
         <select value={ctx.meuId} onChange={e => { setDemoMembro(e.target.value); ctx.ir("painel"); }}>{ctx.membros.map(m => <option key={m.id} value={m.id}>{m.nome} ({PAPEIS[m.role]})</option>)}</select></div>
-      <button className="btn danger" onClick={() => { if (confirm("Apagar tudo e voltar aos dados de exemplo?")) { Demo.reset(); setDemoMembro("m_admin"); ctx.ir("painel"); } }}>Restaurar dados de exemplo</button>
+      <button className="btn danger" onClick={() => { if (confirm("Apagar tudo e começar do zero? Essa ação não pode ser desfeita.")) { Demo.reset(); setDemoMembro("m_admin"); ctx.ir("painel"); } }}>Apagar tudo e começar do zero</button>
       <p className="small muted">Para usar de verdade com login de cada pessoa, cole a configuração do Firebase no início do arquivo.</p>
     </div>}
   </div>);
@@ -1576,7 +1533,7 @@ function ProjetoModal({ ctx, inicial, onClose }) {
   return (
     <Modal sm titulo={p.id ? "Editar projeto" : "Novo projeto"} onClose={onClose} rodape={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri" onClick={salvar}>Salvar</button></>}>
       {erro && <div className="err">{erro}</div>}
-      <div className="fld"><label>Nome</label><input autoFocus value={p.nome} onChange={e => set("nome", e.target.value)} placeholder="Ex.: Campanha de Natal" /></div>
+      <div className="fld"><label>Nome</label><input autoFocus value={p.nome} onChange={e => set("nome", e.target.value)} placeholder="Ex.: Copinha 2027" /></div>
       <div className="fld"><label>Descrição</label><textarea value={p.descricao} onChange={e => set("descricao", e.target.value)} /></div>
       <div className="fld"><label>Entrega prevista (opcional)</label><input type="date" value={p.prazo || ""} onChange={e => set("prazo", e.target.value)} /></div>
       <div className="fld"><label>Cor</label><div className="colors">{CORES.map(c => <button key={c} className={p.cor === c ? "on" : ""} style={{ background: c }} onClick={() => set("cor", c)} />)}</div></div>
