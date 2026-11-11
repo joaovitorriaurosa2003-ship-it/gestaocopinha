@@ -9,6 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <style>
 :root{
@@ -253,7 +255,24 @@ input,select,textarea{font-family:inherit;font-size:14px}
   .mgridf{grid-template-columns:1fr}
   .prof{grid-template-columns:1fr}
 }
+.mapwrap{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:18px;align-items:start}
+.mapa{position:relative;z-index:0;height:calc(100vh - 250px);min-height:440px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#dfe7df}
+.mapa.mini{height:260px;min-height:0}
+.mapa.add,.mapa.add .leaflet-container{cursor:crosshair}
+.maptool{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.maptool input{padding:8px 10px;border:1px solid var(--line);border-radius:9px;min-width:240px;flex:1;max-width:420px;outline:none}
+.dica{background:#fefce8;border:1px solid #fde68a;color:#854d0e;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;margin-bottom:12px}
+.pin{width:34px;height:34px;border-radius:50% 50% 50% 0;background:var(--c);transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;position:relative;box-sizing:border-box}
+.pin span{transform:rotate(45deg);color:#fff;font-weight:800;font-size:12px;font-family:Inter,sans-serif}
+.pin i{position:absolute;top:-5px;right:-5px;width:12px;height:12px;background:#ef4444;border:2px solid #fff;border-radius:50%}
+.pin.sel{outline:3px solid var(--gold);outline-offset:2px}
+.lrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.lrow:hover{background:#f8fafc}
+.lrow:last-child{border-bottom:0}
+.ldot{width:30px;height:30px;border-radius:50%;background:var(--c);color:#fff;display:flex;align-items:center;justify-content:center;flex:none}
 .cal .dots{display:none;gap:2px;flex-wrap:wrap;justify-content:center}
+@media (max-width:1100px){ .mapwrap{grid-template-columns:minmax(0,1fr)} .mapa{height:60vh;min-height:320px} }
+@media (max-width:760px){ .maptool input{min-width:0;max-width:none;flex:1 1 100%} .mapa{height:52vh} }
 .cal .dots i{width:6px;height:6px;border-radius:50%}
 </style>
 </head>
@@ -277,6 +296,8 @@ const FIREBASE_CONFIG = {
   appId: "COLE_AQUI"
 };
 const NOME_APP = "MeuGestor";
+/* Chave do Google Maps (projeto Google Cloud "MeuGestor"). Restrita aos sites *.meianoitesaf.com e ao GitHub Pages. */
+const GOOGLE_MAPS_KEY = "AIzaSyABOS7vDlXTSuwZGJoFsoBbTvzlv7tscII";
 const MODO_DEMO = !FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey.indexOf("COLE") === 0;
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -333,6 +354,27 @@ function PixInfo({ pix, ctx, compacto }) {
     </div>
   );
 }
+const TIPOS_LOCAL = {
+  ct: ["Centro de treinamento", "#15803d"], campo: ["Campo", "#22c55e"], estadio: ["Estádio", "#0284c7"],
+  vestiario: ["Vestiário", "#7c3aed"], academia: ["Academia", "#ea580c"], dm: ["Departamento médico", "#dc2626"],
+  alojamento: ["Alojamento", "#db2777"], refeitorio: ["Refeitório", "#ca8a04"], administrativo: ["Administrativo", "#475569"], outro: ["Outro", "#1e293b"]
+};
+const corLocal = l => (TIPOS_LOCAL[l && l.tipo] || TIPOS_LOCAL.outro)[1];
+const PADRAO_MAPA = { lat: -20.6394, lng: -47.2817, zoom: 15 };
+const TILES = {
+  sat: [["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", "Imagens © Esri"]],
+  mapa: [["https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", "© OpenStreetMap"]]
+};
+function lerCoordenadas(txt) {
+  const t = decodeURIComponent((txt || "").trim());
+  const pads = [/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/, /[?&](?:q|query|ll|destination|center)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/, /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/, /^(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)$/];
+  for (const r of pads) { const m = t.match(r); if (m) { const lat = +m[1], lng = +m[2]; if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng }; } }
+  return null;
+}
+const linkGoogle = l => `https://www.google.com/maps/search/?api=1&query=${l.lat},${l.lng}`;
+const linkRota = l => `https://www.google.com/maps/dir/?api=1&destination=${l.lat},${l.lng}`;
+function statsLocal(id, atividades) { const l = atividades.filter(a => a.localId === id); return { total: l.length, abertas: l.filter(a => a.status !== "concluida").length, atr: l.filter(atrasada).length }; }
+function LocalTag({ a, ctx }) { const l = a.localId && ctx.mapL[a.localId]; return l ? <span className="tag" style={{ color: corLocal(l) }}><Icon n="pin" s={11} /><span style={{ color: "#475569" }}>{l.nome}</span></span> : null; }
 const PAPEIS = { admin: "Administrador", gestor: "Gestor", executor: "Executor" };
 const CORES = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#ec4899","#14b8a6","#f97316","#64748b"];
 const corDe = s => { let h = 0; for (const c of (s || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0; return ["#0f9d8a","#3b82f6","#8b5cf6","#ec4899","#f97316","#14b8a6","#6366f1","#d97706"][h % 8]; };
@@ -414,6 +456,9 @@ const P = {
   home: ["M3 10l9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "M9 22V12h6v10"],
   list: ["M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01"],
   kanban: ["M4 3h4a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M11 3h4a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M18 3h2a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"],
+  pin: ["M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z", "M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"],
+  nav: ["M3 11l19-9-9 19-2-8-8-2z"],
+  target: ["M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z", "M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z", "M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"],
   cal: ["M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M16 2v4", "M8 2v4", "M3 10h18"],
   folder: ["M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"],
   users: ["M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M23 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
@@ -644,7 +689,7 @@ function VerificarScreen({ user, onOk }) {
 /* ================================= MAIN ================================= */
 const NAV = [
   ["painel", "home", "Painel"], ["lista", "list", "Atividades"], ["kanban", "kanban", "Kanban"],
-  ["calendario", "cal", "Agenda"], ["projetos", "folder", "Projetos"], ["equipe", "users", "Elenco"]
+  ["calendario", "cal", "Agenda"], ["mapa", "pin", "Mapa"], ["projetos", "folder", "Projetos"], ["equipe", "users", "Elenco"]
 ];
 
 function Main({ session }) {
@@ -653,6 +698,9 @@ function Main({ session }) {
   const [projetos, setProjetos] = useState([]);
   const [atividades, setAtividades] = useState([]);
   const [eventos, setEventos] = useState([]);
+  const [locais, setLocais] = useState([]);
+  const [modalLocal, setModalLocal] = useState(null);
+  const [localSel, setLocalSel] = useState(null);
   const [org, setOrg] = useState({});
   const [pix, setPix] = useState([]);
   const [demoMembro, setDemoMembro] = useState(session.membroId);
@@ -674,7 +722,7 @@ function Main({ session }) {
   useEffect(() => {
     const u = [
       store.listen("membros", setMembros), store.listen("projetos", setProjetos),
-      store.listen("eventos", setEventos), store.listenOrg(setOrg),
+      store.listen("eventos", setEventos), store.listen("locais", setLocais), store.listenOrg(setOrg),
       store.listen("pix", setPix, !session.demo && !gestor ? ["membroId", meuId] : null),
       store.listen("atividades", setAtividades, !session.demo && !gestor ? ["responsavelIds", "array-contains", meuId] : null)
     ];
@@ -686,10 +734,13 @@ function Main({ session }) {
 
   const visiveis = useMemo(() => gestor ? atividades : atividades.filter(a => temResp(a, meuId)), [atividades, gestor, meuId]);
   const mapM = useMemo(() => Object.fromEntries(membros.map(m => [m.id, m])), [membros]);
+  const mapL = useMemo(() => Object.fromEntries(locais.map(l => [l.id, l])), [locais]);
   const mapP = useMemo(() => Object.fromEntries(projetos.map(p => [p.id, p])), [projetos]);
   const mapPix = useMemo(() => Object.fromEntries(pix.filter(x => gestor || x.membroId === meuId).map(x => [x.membroId || x.id, x])), [pix, gestor, meuId]);
 
-  const ctx = { store, membros, projetos, atividades: visiveis, eventos, org, eu, meuId, role, gestor, mapM, mapP, mapPix, session,
+  const ctx = { store, membros, projetos, atividades: visiveis, eventos, locais, mapL, localSel, setLocalSel, org, eu, meuId, role, gestor, mapM, mapP, mapPix, session,
+    abrirLocal: l => setModalLocal(l),
+    verNoMapa: id => { setLocalSel(id); setView("mapa"); setPerfilId(null); },
     notificar: setToast,
     abrirAtividade: (a) => setModalAt(a || { status: "pendente", prioridade: "media", responsavelIds: gestor ? [] : [meuId] }),
     abrirMembro: m => setModalMembro(m || { role: "executor" }),
@@ -724,7 +775,7 @@ function Main({ session }) {
     try { await store.remove("atividades", a.id); setModalAt(null); setToast("Atividade excluída"); } catch (e) { setToast(traduzErro(e)); }
   }
 
-  const titulos = { painel: "Meu painel", lista: "Atividades", kanban: "Quadro Kanban", calendario: "Agenda", projetos: "Projetos", equipe: "Elenco", perfil: "Perfil", config: "Configurações" };
+  const titulos = { painel: "Meu painel", lista: "Atividades", kanban: "Quadro Kanban", calendario: "Agenda", mapa: "Mapa do clube", projetos: "Projetos", equipe: "Elenco", perfil: "Perfil", config: "Configurações" };
 
   return (
     <div className="app">
@@ -751,6 +802,7 @@ function Main({ session }) {
           {view === "lista" && <Lista ctx={ctx} inicial={filtroLista} />}
           {view === "kanban" && <Kanban ctx={ctx} />}
           {view === "calendario" && <Calendario ctx={ctx} />}
+          {view === "mapa" && <Mapa ctx={ctx} />}
           {view === "projetos" && <Projetos ctx={ctx} />}
           {view === "equipe" && <Equipe ctx={ctx} />}
           {view === "perfil" && <Perfil ctx={ctx} id={perfilId} />}
@@ -760,6 +812,7 @@ function Main({ session }) {
       {modalAt && <AtividadeModal ctx={ctx} inicial={modalAt} onClose={() => setModalAt(null)} onSalvar={salvarAtividade} onExcluir={excluirAtividade} />}
       {modalMembro && <MembroModal ctx={ctx} inicial={modalMembro} onClose={() => setModalMembro(null)} />}
       {modalProjeto && <ProjetoModal ctx={ctx} inicial={modalProjeto} onClose={() => setModalProjeto(null)} />}
+      {modalLocal && <LocalModal ctx={ctx} inicial={modalLocal} onClose={() => setModalLocal(null)} />}
       {modalEvento && <EventoModal ctx={ctx} inicial={modalEvento} onClose={() => setModalEvento(null)} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
@@ -778,6 +831,7 @@ function TarefaRow({ a, ctx, mostrarResp = true }) {
         <div className="tt ell">{a.titulo}</div>
         <div className="row small muted" style={{ gap: 6, marginTop: 3, flexWrap: "wrap" }}>
           {pj && <Tag cor={pj.cor}>{pj.nome}</Tag>}
+          <LocalTag a={a} ctx={ctx} />
           {a.status === "andamento" && <Chip cor={STATUS.andamento.cor}>Em andamento</Chip>}
           {(a.checklist || []).length > 0 && <span className="cnt"><Icon n="checksq" s={11} />{a.checklist.filter(c => c.feito).length}/{a.checklist.length}</span>}
         </div>
@@ -929,6 +983,11 @@ function Painel({ ctx }) {
       </div>
 
       <div className="stack">
+        <div className="card" style={{ padding: 14 }}>
+          <div className="ch" style={{ marginBottom: 10 }}><h3>Mapa do clube</h3><div className="grow" /><button className="btn sm" onClick={() => ctx.ir("mapa")}>Abrir</button></div>
+          <MapaView ctx={ctx} mini onPin={id => ctx.verNoMapa(id)} />
+          {ctx.locais.length === 0 && <div className="small muted" style={{ marginTop: 8 }}>{ctx.gestor ? "Abra o mapa para marcar os locais de trabalho." : "Nenhum local marcado ainda."}</div>}
+        </div>
         <div className="card"><MiniCal ctx={ctx} sel={diaSel} onSel={setDiaSel} /></div>
         <div className="card">
           <div className="ch"><h3>{diaSel ? `Dia ${fmt(diaSel)}` : "Próximos eventos"}</h3>{gestor && <button className="ib" title="Novo evento" onClick={() => ctx.abrirEvento({ data: diaSel || hojeISO() })}><Icon n="plus" s={15} /></button>}<div className="grow" />{diaSel && <button className="linkb" onClick={() => setDiaSel(null)}>Limpar</button>}</div>
@@ -966,6 +1025,7 @@ function CartaoAtividade({ a, ctx }) {
         <Chip cor={atrasada(a) ? "#ef4444" : st.cor}>{atrasada(a) ? "Atrasada" : st.um}</Chip>
         <Chip cor={pr.cor}>{pr.label}</Chip>
         {pj && <Tag cor={pj.cor}>{pj.nome}</Tag>}
+        <LocalTag a={a} ctx={ctx} />
       </div>
       {cl.length > 0 && <div><div className="small muted" style={{ marginBottom: 4 }}>Checklist {cl.filter(c => c.feito).length}/{cl.length}</div><div className="bar"><i style={{ width: cl.filter(c => c.feito).length / cl.length * 100 + "%", background: "var(--green)" }} /></div></div>}
       <div className="ft">
@@ -1071,15 +1131,16 @@ function Delegadas({ ctx }) {
 
 /* ================================= LISTA ================================= */
 function Lista({ ctx, inicial }) {
-  const [f, setF] = useState({ texto: "", resp: "", projeto: "", status: "", prioridade: "", prazo: "", ...inicial });
+  const [f, setF] = useState({ texto: "", resp: "", projeto: "", local: "", status: "", prioridade: "", prazo: "", ...inicial });
   const [qtd, setQtd] = useState(15);
-  useEffect(() => { setF({ texto: "", resp: "", projeto: "", status: "", prioridade: "", prazo: "", ...inicial }); setQtd(15); }, [inicial]);
+  useEffect(() => { setF({ texto: "", resp: "", projeto: "", local: "", status: "", prioridade: "", prazo: "", ...inicial }); setQtd(15); }, [inicial]);
   const set = (k, v) => { setF(p => ({ ...p, [k]: v })); setQtd(15); };
   const hoje = hojeISO(), semana = somaDias(7);
   const lista = useMemo(() => ordenar(ctx.atividades.filter(a => {
     if (f.texto && !(`${a.titulo} ${a.descricao || ""}`).toLowerCase().includes(f.texto.toLowerCase())) return false;
     if (f.resp && !temResp(a, f.resp)) return false;
     if (f.projeto && a.projetoId !== f.projeto) return false;
+    if (f.local && a.localId !== f.local) return false;
     if (f.status && a.status !== f.status) return false;
     if (f.prioridade && a.prioridade !== f.prioridade) return false;
     if (f.prazo === "atrasadas" && !atrasada(a)) return false;
@@ -1094,10 +1155,11 @@ function Lista({ ctx, inicial }) {
       <input placeholder="Buscar por título..." value={f.texto} onChange={e => set("texto", e.target.value)} />
       {ctx.gestor && <select value={f.resp} onChange={e => set("resp", e.target.value)}><option value="">Todos os responsáveis</option>{ctx.membros.map(m => <option key={m.id} value={m.id}>{m.nome}</option>)}</select>}
       <select value={f.projeto} onChange={e => set("projeto", e.target.value)}><option value="">Todos os projetos</option>{ctx.projetos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select>
+      {ctx.locais.length > 0 && <select value={f.local} onChange={e => set("local", e.target.value)}><option value="">Todos os locais</option>{[...ctx.locais].sort((x, y) => x.nome.localeCompare(y.nome)).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select>}
       <select value={f.status} onChange={e => set("status", e.target.value)}><option value="">Todos os status</option>{Object.entries(STATUS).map(([k, s]) => <option key={k} value={k}>{s.um}</option>)}</select>
       <select value={f.prioridade} onChange={e => set("prioridade", e.target.value)}><option value="">Todas as prioridades</option>{Object.entries(PRIORIDADES).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}</select>
       <select value={f.prazo} onChange={e => set("prazo", e.target.value)}><option value="">Qualquer prazo</option><option value="atrasadas">Atrasadas</option><option value="hoje">Vencem hoje</option><option value="semana">Próximos 7 dias</option><option value="sem">Sem prazo</option></select>
-      {temFiltro && <button className="btn" onClick={() => { setF({ texto: "", resp: "", projeto: "", status: "", prioridade: "", prazo: "" }); setQtd(15); }}>Limpar filtros</button>}
+      {temFiltro && <button className="btn" onClick={() => { setF({ texto: "", resp: "", projeto: "", local: "", status: "", prioridade: "", prazo: "" }); setQtd(15); }}>Limpar filtros</button>}
     </div>
     <div className="small muted" style={{ marginBottom: 8 }}>{lista.length} atividade{lista.length !== 1 ? "s" : ""}</div>
     <div className="list ltable" style={{ background: "#fff" }}>
@@ -1106,7 +1168,7 @@ function Lista({ ctx, inicial }) {
       {lista.slice(0, qtd).map(a => { const pj = ctx.mapP[a.projetoId]; const pr = PRIORIDADES[a.prioridade] || PRIORIDADES.media; const feito = a.status === "concluida"; return (
         <div key={a.id} className={"trow" + (feito ? " done" : "")} style={{ "--c": pr.cor }} onClick={() => ctx.abrirAtividade(a)}>
           <button className={"chk" + (feito ? " on" : "")} onClick={e => { e.stopPropagation(); ctx.mudarStatus(a, feito ? "pendente" : "concluida"); }}>{feito && <Icon n="check" s={13} w={3} />}</button>
-          <div style={{ minWidth: 0 }}><div className="tt ell">{a.titulo}</div><div className="small muted ell" style={{ marginTop: 2 }}>{pj ? pj.nome : "Sem projeto"}{(a.comentarios || []).length ? ` · ${a.comentarios.length} comentário${a.comentarios.length > 1 ? "s" : ""}` : ""}</div></div>
+          <div style={{ minWidth: 0 }}><div className="tt ell">{a.titulo}</div><div className="small muted ell" style={{ marginTop: 2 }}>{pj ? pj.nome : "Sem projeto"}{a.localId && ctx.mapL[a.localId] ? " · " + ctx.mapL[a.localId].nome : ""}{(a.comentarios || []).length ? ` · ${a.comentarios.length} comentário${a.comentarios.length > 1 ? "s" : ""}` : ""}</div></div>
           <div className="row c-resp" style={{ gap: 8, minWidth: 0 }}><Avatares ids={resps(a)} ctx={ctx} size={26} max={2} /><span className="ell small">{nomesResp(a, ctx)}</span></div>
           <div className="c-pri"><Chip cor={pr.cor}>{pr.label}</Chip></div>
           <div><PrazoChip a={a} /></div>
@@ -1139,7 +1201,7 @@ function Kanban({ ctx }) {
           {col.slice(0, qtd[k]).map(a => { const pj = ctx.mapP[a.projetoId]; const pr = PRIORIDADES[a.prioridade] || PRIORIDADES.media; return (
             <div key={a.id} className="kcard" style={{ "--c": pr.cor }} draggable onDragStart={() => { drag.current = a; }} onClick={() => ctx.abrirAtividade(a)}>
               <div className="row" style={{ alignItems: "flex-start" }}><div className="tt grow">{a.titulo}</div><Avatares ids={resps(a)} ctx={ctx} size={28} /></div>
-              <div className="pj">{pj ? pj.nome : "Sem projeto"}</div>
+              <div className="pj">{pj ? pj.nome : "Sem projeto"}{a.localId && ctx.mapL[a.localId] ? " · " + ctx.mapL[a.localId].nome : ""}</div>
               <div className="ft">
                 {(a.checklist || []).length > 0 && <span className="cnt"><Icon n="checksq" s={11} />{a.checklist.filter(c => c.feito).length}/{a.checklist.length}</span>}
                 {(a.comentarios || []).length > 0 && <span className="cnt"><Icon n="msg" s={11} />{a.comentarios.length}</span>}
@@ -1195,6 +1257,222 @@ function Calendario({ ctx }) {
         <div key={n} className="trow" style={{ "--c": "#8b5cf6" }} onClick={() => abrir(i)}><Icon n="cal" /><div className="grow"><div className="tt">{i.obj.titulo}</div><div className="small muted">{i.obj.hora || "Dia todo"}{i.obj.descricao ? " · " + i.obj.descricao : ""}</div></div><Tag cor="#8b5cf6">Evento</Tag></div>)}</div>
     </div>}
   </>);
+}
+
+
+
+/* ============================ GOOGLE MAPS ============================ */
+let _gmPromise = null, _gmFalhou = false;
+function carregarGoogleMaps() {
+  if (_gmFalhou || !GOOGLE_MAPS_KEY) return Promise.reject(new Error("sem google"));
+  if (window.google && window.google.maps && window.google.maps.Map) return Promise.resolve();
+  if (_gmPromise) return _gmPromise;
+  _gmPromise = new Promise((res, rej) => {
+    window.gm_authFailure = () => { _gmFalhou = true; window.dispatchEvent(new Event("gm-falhou")); rej(new Error("auth")); };
+    window.__gmInit = () => res();
+    const sc = document.createElement("script");
+    sc.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&loading=async&v=weekly&language=pt-BR&region=BR&callback=__gmInit`;
+    sc.async = true; sc.onerror = () => { _gmFalhou = true; rej(new Error("load")); };
+    document.head.appendChild(sc);
+    setTimeout(() => { if (!(window.google && window.google.maps && window.google.maps.Map)) { _gmFalhou = true; rej(new Error("timeout")); } }, 12000);
+  });
+  return _gmPromise;
+}
+function iconePin(cor, n, atr, sel) {
+  const txt = n ? `<text x="20" y="22" text-anchor="middle" font-family="Inter,Arial" font-size="13" font-weight="800" fill="#fff">${n}</text>` : `<circle cx="20" cy="18" r="5" fill="#fff"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="50" viewBox="0 0 40 50">
+    ${sel ? `<path d="M20 2C10.6 2 3 9.6 3 19c0 12.5 17 29 17 29s17-16.5 17-29C37 9.6 29.4 2 20 2z" fill="none" stroke="#facc15" stroke-width="4"/>` : ""}
+    <path d="M20 4C11.7 4 5 10.7 5 19c0 11.2 15 26 15 26s15-14.8 15-26C35 10.7 28.3 4 20 4z" fill="${cor}" stroke="#fff" stroke-width="3"/>
+    ${txt}${atr ? `<circle cx="32" cy="8" r="6" fill="#ef4444" stroke="#fff" stroke-width="2"/>` : ""}</svg>`;
+  return { url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg), scaledSize: new google.maps.Size(40, 50), anchor: new google.maps.Point(20, 48) };
+}
+function MapaGoogle({ ctx, mini, base = "sat", adicionando, onAdd, onPin, sel, apiRef }) {
+  const el = useRef(); const map = useRef(); const pins = useRef({}); const addRef = useRef(adicionando); const cbs = useRef({});
+  addRef.current = adicionando; cbs.current = { onAdd, onPin };
+  const centro = ctx.org.mapa || PADRAO_MAPA;
+  useEffect(() => {
+    const m = new google.maps.Map(el.current, {
+      center: { lat: centro.lat, lng: centro.lng }, zoom: mini ? Math.max(centro.zoom - 1, 3) : centro.zoom,
+      mapTypeId: base === "sat" ? "hybrid" : "roadmap", mapTypeControl: false, streetViewControl: !mini, fullscreenControl: !mini,
+      zoomControl: !mini, gestureHandling: mini ? "cooperative" : "greedy", clickableIcons: false, tilt: 0
+    });
+    map.current = m;
+    m.addListener("click", e => { if (addRef.current && cbs.current.onAdd) cbs.current.onAdd({ lat: e.latLng.lat(), lng: e.latLng.lng() }); });
+    if (apiRef) apiRef.current = {
+      voar: (lat, lng, z) => { m.panTo({ lat, lng }); m.setZoom(z || Math.max(m.getZoom(), 18)); },
+      visao: () => { const c = m.getCenter(); return { lat: c.lat(), lng: c.lng(), zoom: m.getZoom() }; },
+      enquadrar: pts => { if (pts.length === 1) { m.panTo({ lat: pts[0][0], lng: pts[0][1] }); m.setZoom(18); } else if (pts.length) { const b = new google.maps.LatLngBounds(); pts.forEach(p => b.extend({ lat: p[0], lng: p[1] })); m.fitBounds(b, 60); } }
+    };
+    return () => { Object.values(pins.current).forEach(p => p.setMap(null)); pins.current = {}; };
+  }, []);
+  useEffect(() => { if (map.current) map.current.setMapTypeId(base === "sat" ? "hybrid" : "roadmap"); }, [base]);
+  useEffect(() => { if (map.current) map.current.setOptions({ draggableCursor: adicionando ? "crosshair" : null }); }, [adicionando]);
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    Object.values(pins.current).forEach(p => p.setMap(null)); pins.current = {};
+    ctx.locais.forEach(l => {
+      const st = statsLocal(l.id, ctx.atividades);
+      const mk = new google.maps.Marker({ map: m, position: { lat: l.lat, lng: l.lng }, title: l.nome + (st.abertas ? ` (${st.abertas} em aberto)` : ""), icon: iconePin(corLocal(l), st.abertas, st.atr, sel === l.id), draggable: !mini && ctx.gestor, zIndex: sel === l.id ? 999 : 1 });
+      mk.addListener("click", () => cbs.current.onPin && cbs.current.onPin(l.id));
+      mk.addListener("dragend", e => ctx.store.save("locais", l.id, { lat: e.latLng.lat(), lng: e.latLng.lng() }).then(() => ctx.notificar("Pin movido")).catch(er => ctx.notificar(traduzErro(er))));
+      pins.current[l.id] = mk;
+    });
+  }, [ctx.locais, ctx.atividades, ctx.gestor, sel]);
+  return <div ref={el} className={"mapa" + (mini ? " mini" : "")} />;
+}
+function MapaView(props) {
+  const [st, setSt] = useState(() => (_gmFalhou || !GOOGLE_MAPS_KEY) ? "falhou" : (window.google && window.google.maps && window.google.maps.Map) ? "ok" : "carregando");
+  useEffect(() => {
+    if (st !== "carregando") return;
+    let vivo = true;
+    carregarGoogleMaps().then(() => vivo && setSt("ok")).catch(() => vivo && setSt("falhou"));
+    return () => { vivo = false; };
+  }, []);
+  useEffect(() => { const f = () => setSt("falhou"); window.addEventListener("gm-falhou", f); return () => window.removeEventListener("gm-falhou", f); }, []);
+  if (st === "ok") return <MapaGoogle key="g" {...props} />;
+  if (st === "falhou") return <MapaLeaflet key="l" {...props} />;
+  return <div className={"mapa" + (props.mini ? " mini" : "")} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}><span className="muted small">Carregando mapa...</span></div>;
+}
+
+/* ================================= MAPA ================================= */
+function MapaLeaflet({ ctx, mini, base = "sat", adicionando, onAdd, onPin, sel, apiRef }) {
+  const el = useRef(); const map = useRef(); const camadas = useRef([]); const pins = useRef({}); const addRef = useRef(adicionando); const cbs = useRef({});
+  addRef.current = adicionando; cbs.current = { onAdd, onPin };
+  const centro = ctx.org.mapa || PADRAO_MAPA;
+  useEffect(() => {
+    if (!window.L) return;
+    const m = L.map(el.current, { zoomControl: !mini, attributionControl: true, scrollWheelZoom: !mini }).setView([centro.lat, centro.lng], mini ? Math.max(centro.zoom - 1, 3) : centro.zoom);
+    map.current = m;
+    m.on("click", e => { if (addRef.current && cbs.current.onAdd) cbs.current.onAdd(e.latlng); });
+    const ro = new ResizeObserver(() => m.invalidateSize()); ro.observe(el.current);
+    if (apiRef) apiRef.current = {
+      voar: (lat, lng, z) => m.flyTo([lat, lng], z || Math.max(m.getZoom(), 17), { duration: .6 }),
+      visao: () => { const c = m.getCenter(); return { lat: c.lat, lng: c.lng, zoom: m.getZoom() }; },
+      enquadrar: pts => { if (pts.length === 1) m.flyTo(pts[0], 17); else if (pts.length) m.flyToBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 18 }); }
+    };
+    return () => { ro.disconnect(); m.remove(); };
+  }, []);
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    camadas.current.forEach(c => m.removeLayer(c));
+    camadas.current = TILES[base].map(([u, a]) => L.tileLayer(u, { maxZoom: 19, attribution: a }).addTo(m));
+  }, [base]);
+  useEffect(() => {
+    const m = map.current; if (!m) return;
+    Object.values(pins.current).forEach(p => m.removeLayer(p)); pins.current = {};
+    ctx.locais.forEach(l => {
+      const st = statsLocal(l.id, ctx.atividades);
+      const icon = L.divIcon({ className: "", html: `<div class="pin${sel === l.id ? " sel" : ""}" style="--c:${corLocal(l)}"><span>${st.abertas || ""}</span>${st.atr ? "<i></i>" : ""}</div>`, iconSize: [34, 34], iconAnchor: [17, 41] });
+      const mk = L.marker([l.lat, l.lng], { icon, draggable: !mini && ctx.gestor, riseOnHover: true }).addTo(m);
+      mk.bindTooltip(`<b>${l.nome.replace(/</g, "&lt;")}</b>${st.abertas ? `<br>${st.abertas} em aberto` : ""}`, { direction: "top", offset: [0, -40] });
+      mk.on("click", () => cbs.current.onPin && cbs.current.onPin(l.id));
+      mk.on("dragend", e => { const p = e.target.getLatLng(); ctx.store.save("locais", l.id, { lat: p.lat, lng: p.lng }).then(() => ctx.notificar("Pin movido")).catch(er => ctx.notificar(traduzErro(er))); });
+      pins.current[l.id] = mk;
+    });
+  }, [ctx.locais, ctx.atividades, ctx.gestor, sel]);
+  if (!window.L) return <div className={"mapa" + (mini ? " mini" : "")} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center" }}><span className="muted small">Não foi possível carregar o mapa. Verifique a internet e recarregue a página.</span></div>;
+  return <div ref={el} className={"mapa" + (mini ? " mini" : "") + (adicionando ? " add" : "")} />;
+}
+
+function Mapa({ ctx }) {
+  const api = useRef(); const [base, setBase] = useState("sat"); const [add, setAdd] = useState(false);
+  const [link, setLink] = useState(""); const [tipo, setTipo] = useState(""); const [qtd, setQtd] = useState(8); const [qtdL, setQtdL] = useState(10);
+  const sel = ctx.localSel && ctx.mapL[ctx.localSel] ? ctx.localSel : null; const l = sel && ctx.mapL[sel];
+  useEffect(() => { if (l && api.current) setTimeout(() => api.current.voar(l.lat, l.lng), 150); }, [sel]);
+  useEffect(() => { setQtd(8); }, [sel]);
+  function novoPelaLigacao() {
+    const c = lerCoordenadas(link);
+    if (!c) return ctx.notificar(/goo\.gl|maps\.app/.test(link) ? "Link curto não tem coordenadas. Abra o link e copie o endereço completo da barra." : "Não achei coordenadas nesse link.");
+    setLink(""); api.current && api.current.voar(c.lat, c.lng, 18); ctx.abrirLocal({ lat: c.lat, lng: c.lng, tipo: "campo" });
+  }
+  const lista = [...ctx.locais].filter(x => !tipo || x.tipo === tipo).sort((x, y) => x.nome.localeCompare(y.nome));
+  const tarefas = l ? ordenar(ctx.atividades.filter(a => a.localId === l.id)) : [];
+  const st = l ? statsLocal(l.id, ctx.atividades) : null;
+  return (<>
+    <div className="maptool">
+      {ctx.gestor && <button className={"btn" + (add ? " danger" : " pri")} onClick={() => setAdd(!add)}><Icon n={add ? "x" : "pin"} s={15} />{add ? "Cancelar" : "Adicionar pin"}</button>}
+      {ctx.gestor && <><input value={link} onChange={e => setLink(e.target.value)} onKeyDown={e => e.key === "Enter" && novoPelaLigacao()} placeholder="Ou cole um link do Google Maps / coordenadas" /><button className="btn" onClick={novoPelaLigacao} disabled={!link.trim()}>Criar pin</button></>}
+      <div className="grow" />
+      <div className="tabs"><button className={base === "sat" ? "on" : ""} onClick={() => setBase("sat")}>Satélite</button><button className={base === "mapa" ? "on" : ""} onClick={() => setBase("mapa")}>Mapa</button></div>
+      <button className="btn" title="Mostrar todos os pins" onClick={() => api.current && api.current.enquadrar(ctx.locais.map(x => [x.lat, x.lng]))} disabled={!ctx.locais.length}><Icon n="target" s={15} />Ver todos</button>
+      {ctx.role === "admin" && <button className="btn" onClick={() => api.current && ctx.store.saveOrg({ mapa: api.current.visao() }).then(() => ctx.notificar("Vista salva como padrão"))}>Salvar vista padrão</button>}
+    </div>
+    {add && <div className="dica">Clique no mapa no ponto exato do local de trabalho (aproxime com o zoom para mais precisão).</div>}
+    <div className="mapwrap">
+      <MapaView ctx={ctx} base={base} adicionando={add} sel={sel} apiRef={api}
+        onAdd={ll => { setAdd(false); ctx.abrirLocal({ lat: ll.lat, lng: ll.lng, tipo: "campo" }); }}
+        onPin={id => ctx.setLocalSel(id)} />
+      <div className="card" style={{ padding: 0 }}>
+        {!l && <>
+          <div className="ch" style={{ padding: "16px 16px 10px" }}><h3>Locais de trabalho</h3><span className="small muted">{ctx.locais.length}</span><div className="grow" />
+            {ctx.locais.length > 0 && <select value={tipo} onChange={e => { setTipo(e.target.value); setQtdL(10); }} style={{ padding: "5px 8px", border: "1px solid var(--line)", borderRadius: 8, fontSize: 12 }}><option value="">Todos os tipos</option>{Object.entries(TIPOS_LOCAL).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select>}</div>
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            {lista.length === 0 && <div className="empty small">{ctx.locais.length ? "Nenhum local deste tipo." : ctx.gestor ? <>Nenhum pin ainda.<br />Clique em <b>Adicionar pin</b> e depois no mapa.</> : "Nenhum local marcado ainda."}</div>}
+            {lista.slice(0, qtdL).map(x => { const s = statsLocal(x.id, ctx.atividades); return (
+              <div key={x.id} className="lrow" onClick={() => ctx.setLocalSel(x.id)}>
+                <div className="ldot" style={{ "--c": corLocal(x) }}><Icon n="pin" s={15} /></div>
+                <div className="grow" style={{ minWidth: 0 }}><div className="ell" style={{ fontWeight: 600 }}>{x.nome}</div><div className="small muted">{(TIPOS_LOCAL[x.tipo] || TIPOS_LOCAL.outro)[0]}</div></div>
+                {s.atr > 0 && <Chip cor="#ef4444">{s.atr}</Chip>}<span className="small muted">{s.abertas} em aberto</span>
+              </div>); })}
+          </div>
+          <VerMais total={lista.length} mostrando={qtdL} passo={10} onMais={() => setQtdL(qtdL + 10)} />
+          <div className="small muted" style={{ padding: "10px 16px", borderTop: "1px solid var(--line)" }}>O número no pin mostra as atividades em aberto. Bolinha vermelha indica atividade atrasada.{ctx.gestor ? " Arraste o pin para ajustar a posição." : ""}</div>
+        </>}
+        {l && <>
+          <div style={{ padding: 16 }}>
+            <button className="back" style={{ marginBottom: 10 }} onClick={() => ctx.setLocalSel(null)}><Icon n="left" s={16} />Todos os locais</button>
+            <div className="row" style={{ alignItems: "flex-start" }}>
+              <div className="ldot" style={{ "--c": corLocal(l), width: 40, height: 40 }}><Icon n="pin" s={19} /></div>
+              <div className="grow"><h3 style={{ fontSize: 18 }}>{l.nome}</h3><div className="small muted">{(TIPOS_LOCAL[l.tipo] || TIPOS_LOCAL.outro)[0]}</div></div>
+              {ctx.gestor && <button className="ib" title="Editar local" onClick={() => ctx.abrirLocal(l)}><Icon n="edit" s={14} /></button>}
+            </div>
+            {l.descricao && <div className="small" style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{l.descricao}</div>}
+            <div className="row wrap" style={{ gap: 6, marginTop: 12 }}><Tag cor={STATUS.pendente.cor}>{st.abertas} em aberto</Tag>{st.atr > 0 && <Tag cor="#ef4444">{st.atr} atrasada{st.atr > 1 ? "s" : ""}</Tag>}<Tag cor={STATUS.concluida.cor}>{st.total - st.abertas} concluída{st.total - st.abertas !== 1 ? "s" : ""}</Tag></div>
+            <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
+              {ctx.gestor && <button className="btn sm pri" onClick={() => ctx.abrirAtividade({ status: "pendente", prioridade: "media", localId: l.id })}><Icon n="plus" s={14} />Atividade aqui</button>}
+              <a className="btn sm" href={linkRota(l)} target="_blank" rel="noopener"><Icon n="nav" s={14} />Como chegar</a>
+              <a className="btn sm" href={linkGoogle(l)} target="_blank" rel="noopener">Abrir no Google Maps</a>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid var(--line)" }}>
+            {tarefas.length === 0 && <div className="empty small">Nenhuma atividade vinculada a este local.</div>}
+            {tarefas.slice(0, qtd).map(a => <TarefaRow key={a.id} a={a} ctx={ctx} />)}
+          </div>
+          <VerMais total={tarefas.length} mostrando={qtd} passo={8} onMais={() => setQtd(qtd + 8)} />
+        </>}
+      </div>
+    </div>
+  </>);
+}
+
+function LocalModal({ ctx, inicial, onClose }) {
+  const [l, setL] = useState({ nome: "", tipo: "campo", descricao: "", ...inicial });
+  const [erro, setErro] = useState(""); const set = (k, v) => setL(x => ({ ...x, [k]: v }));
+  async function salvar() {
+    if (!l.nome.trim()) return setErro("Dê um nome ao local.");
+    const lat = +l.lat, lng = +l.lng;
+    if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return setErro("Coordenadas inválidas.");
+    try { const { id, ...d } = l; const nid = id || "l_" + uid(); await ctx.store.save("locais", nid, { ...d, lat, lng, nome: l.nome.trim(), criadoEm: l.criadoEm || Date.now() }); ctx.notificar(id ? "Local atualizado" : "Pin criado"); ctx.setLocalSel(nid); onClose(); } catch (e) { setErro(traduzErro(e)); }
+  }
+  async function excluir() {
+    const vinc = ctx.atividades.filter(a => a.localId === l.id);
+    if (!confirm(`Excluir o local "${l.nome}"?${vinc.length ? ` ${vinc.length} atividade(s) ficarão sem local.` : ""}`)) return;
+    try { for (const a of vinc) await ctx.store.save("atividades", a.id, { localId: "", atualizadoEm: Date.now() }); await ctx.store.remove("locais", l.id); ctx.setLocalSel(null); ctx.notificar("Local excluído"); onClose(); } catch (e) { setErro(traduzErro(e)); }
+  }
+  return (
+    <Modal sm titulo={l.id ? "Editar local" : "Novo local de trabalho"} onClose={onClose}
+      rodape={<>{l.id && <button className="btn danger" onClick={excluir}><Icon n="trash" s={15} />Excluir</button>}<div className="grow" /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri" onClick={salvar}>Salvar</button></>}>
+      {erro && <div className="err">{erro}</div>}
+      <div className="fld"><label>Nome do local</label><input autoFocus value={l.nome} onChange={e => set("nome", e.target.value)} placeholder="Ex.: Campo 2, Vestiário Sub-17" /></div>
+      <div className="fld"><label>Tipo</label><select value={l.tipo} onChange={e => set("tipo", e.target.value)}>{Object.entries(TIPOS_LOCAL).map(([k, [n]]) => <option key={k} value={k}>{n}</option>)}</select></div>
+      <div className="fld"><label>Observações</label><textarea value={l.descricao || ""} onChange={e => set("descricao", e.target.value)} placeholder="Ponto de referência, horário de uso, responsável pela chave..." /></div>
+      <div className="row" style={{ gap: 12 }}>
+        <div className="fld grow"><label>Latitude</label><input value={l.lat} onChange={e => set("lat", e.target.value)} /></div>
+        <div className="fld grow"><label>Longitude</label><input value={l.lng} onChange={e => set("lng", e.target.value)} /></div>
+      </div>
+      <div className="small muted">Para ajustar a posição depois, arraste o pin no mapa.</div>
+    </Modal>
+  );
 }
 
 /* =============================== PROJETOS =============================== */
@@ -1425,6 +1703,9 @@ function AtividadeModal({ ctx, inicial, onClose, onSalvar, onExcluir }) {
               {a.responsavelIds.length > 1 && <div className="small muted" style={{ marginTop: 6 }}>Atividade em conjunto: quando qualquer um concluir, ela fica concluída para todos.</div>}
             </div>
             <div className="fld"><label>Projeto</label><select value={a.projetoId || ""} disabled={!g} onChange={e => set("projetoId", e.target.value)}><option value="">Sem projeto</option>{ctx.projetos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></div>
+            <div className="fld"><label>Local</label><select value={a.localId || ""} disabled={!g} onChange={e => set("localId", e.target.value)}><option value="">Sem local</option>{[...ctx.locais].sort((x, y) => x.nome.localeCompare(y.nome)).map(l => <option key={l.id} value={l.id}>{l.nome} · {(TIPOS_LOCAL[l.tipo] || TIPOS_LOCAL.outro)[0]}</option>)}</select>
+              {a.localId && ctx.mapL[a.localId] && <div className="row small" style={{ marginTop: 6, gap: 12 }}><button className="linkb" onClick={() => { onClose(); ctx.verNoMapa(a.localId); }}>Ver no mapa</button><a className="linkb" href={linkRota(ctx.mapL[a.localId])} target="_blank" rel="noopener">Como chegar</a></div>}
+              {g && ctx.locais.length === 0 && <div className="small muted" style={{ marginTop: 4 }}>Cadastre locais na aba Mapa.</div>}</div>
             <div className="fld"><label>Prioridade</label><select value={a.prioridade} disabled={!g} onChange={e => set("prioridade", e.target.value)}>{Object.entries(PRIORIDADES).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}</select></div>
             <div className="fld" style={{ marginBottom: 0 }}><label>Prazo</label><input type="date" value={a.prazo || ""} disabled={!g} onChange={e => set("prazo", e.target.value)} />{a.id && atrasada(a) && <div className="small" style={{ color: "var(--red)", marginTop: 6, fontWeight: 600 }}>Atrasada há {-diasAte(a.prazo)} dia(s)</div>}</div>
           </div>
