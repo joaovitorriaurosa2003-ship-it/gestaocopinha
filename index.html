@@ -284,6 +284,7 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .sheet .sb{display:none;pointer-events:auto;background:#fff;border-radius:0 0 16px 16px;overflow:auto;flex:1;box-shadow:0 10px 30px rgba(0,0,0,.3)}
 .sheet.open .sb{display:block}
 .mpin{transition:transform .12s}
+.desv .trow{padding-right:40px}
 @media (min-width:761px){ .mapfull.so .mbanner{right:412px;margin:0} }
 .lrow{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer}
 .lrow:hover{background:#f8fafc}
@@ -1347,6 +1348,12 @@ const svgUrl = svg => "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(s
 
 /* ============================ GOOGLE MAPS ============================ */
 let _gmPromise = null, _gmFalhou = false;
+/* Esconde os pontos do Google (comércios, escolas, ônibus...). Ficam só as ruas e os locais do clube. */
+const ESTILO_SEM_PINS = [
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] }
+];
 function carregarGoogleMaps() {
   if (_gmFalhou || !GOOGLE_MAPS_KEY) return Promise.reject(new Error("sem google"));
   if (window.google && window.google.maps && window.google.maps.Map) return Promise.resolve();
@@ -1373,7 +1380,7 @@ function MapaGoogle({ ctx, mini, full, base = "sat", adicionando, onAdd, onPin, 
       center: { lat: centro.lat, lng: centro.lng }, zoom: mini ? Math.max(centro.zoom - 1, 3) : centro.zoom,
       mapTypeId: base === "sat" ? "hybrid" : "roadmap", mapTypeControl: false, streetViewControl: !mini, fullscreenControl: false,
       zoomControl: !mini, zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER }, streetViewControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
-      gestureHandling: mini ? "cooperative" : "greedy", clickableIcons: false, tilt: 0
+      gestureHandling: mini ? "cooperative" : "greedy", clickableIcons: false, tilt: 0, styles: ESTILO_SEM_PINS
     });
     map.current = m;
     m.addListener("click", e => { if (addRef.current && cbs.current.onAdd) cbs.current.onAdd({ lat: e.latLng.lat(), lng: e.latLng.lng() }); });
@@ -1479,7 +1486,7 @@ function Mapa({ ctx }) {
   const api = useRef();
   const [base, setBase] = useState("sat"); const [add, setAdd] = useState(false); const [verLink, setVerLink] = useState(false); const [link, setLink] = useState("");
   const [aberto, setAberto] = useState(false); const [verSede, setVerSede] = useState(false); const [tipos, setTipos] = useState([]);
-  const [qtd, setQtd] = useState(8); const [qtdL, setQtdL] = useState(10);
+  const [qtd, setQtd] = useState(8); const [qtdL, setQtdL] = useState(10); const [vincular, setVincular] = useState(false);
   const [banner, setBanner] = useState(() => { try { return localStorage.getItem("mg_banner_mapa") !== "0"; } catch (e) { return true; } });
   const sel = ctx.localSel && ctx.mapL[ctx.localSel] ? ctx.localSel : null; const l = sel && ctx.mapL[sel];
   const sd = ctx.org.sede || CLUBE.sede;
@@ -1537,6 +1544,7 @@ function Mapa({ ctx }) {
         </button>
       </div>
 
+      {vincular && l && <VincularModal ctx={ctx} local={l} onClose={() => setVincular(false)} />}
       <div className={"sheet" + (aberto ? " open" : "")}>
         <button className="sh" onClick={() => setAberto(!aberto)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 15l-6-6-6 6" /></svg>
@@ -1581,20 +1589,58 @@ function Mapa({ ctx }) {
               {l.descricao && <div className="small" style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{l.descricao}</div>}
               <div className="row wrap" style={{ gap: 6, marginTop: 12 }}><Tag cor={STATUS.pendente.cor}>{st.abertas} em aberto</Tag>{st.atr > 0 && <Tag cor="#ef4444">{st.atr} atrasada{st.atr > 1 ? "s" : ""}</Tag>}<Tag cor={STATUS.concluida.cor}>{st.total - st.abertas} concluída{st.total - st.abertas !== 1 ? "s" : ""}</Tag></div>
               <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
-                {ctx.gestor && <button className="btn sm pri" onClick={() => ctx.abrirAtividade({ status: "pendente", prioridade: "media", localId: l.id })}><Icon n="plus" s={14} />Atividade aqui</button>}
+                {ctx.gestor && <button className="btn sm pri" onClick={() => ctx.abrirAtividade({ status: "pendente", prioridade: "media", localId: l.id })}><Icon n="plus" s={14} />Nova atividade aqui</button>}
+                {ctx.gestor && <button className="btn sm" onClick={() => setVincular(true)}><Icon n="checksq" s={14} />Vincular atividades</button>}
                 <a className="btn sm" href={linkRota(l)} target="_blank" rel="noopener"><Icon n="nav" s={14} />Como chegar</a>
                 <a className="btn sm" href={linkGoogle(l)} target="_blank" rel="noopener">Google Maps</a>
               </div>
             </div>
             <div style={{ borderTop: "1px solid var(--line)" }}>
               {tarefas.length === 0 && <div className="empty small">Nenhuma atividade neste local.</div>}
-              {tarefas.slice(0, qtd).map(a => <TarefaRow key={a.id} a={a} ctx={ctx} />)}
+              {tarefas.slice(0, qtd).map(a => <div key={a.id} className={ctx.gestor ? "desv" : ""} style={{ position: "relative" }}><TarefaRow a={a} ctx={ctx} />
+                {ctx.gestor && <button className="ib" title="Desvincular deste local" style={{ position: "absolute", right: 8, top: "50%", marginTop: -12, width: 24, height: 24, background: "#fff" }}
+                  onClick={() => ctx.store.save("atividades", a.id, { localId: "", atualizadoEm: Date.now() }).then(() => ctx.notificar("Atividade desvinculada"))}><Icon n="x" s={11} /></button>}</div>)}
             </div>
             <VerMais total={tarefas.length} mostrando={qtd} passo={8} onMais={() => setQtd(qtd + 8)} />
           </>}
         </div>
       </div>
     </div>
+  );
+}
+
+
+function VincularModal({ ctx, local, onClose }) {
+  const [busca, setBusca] = useState(""); const [marcadas, setMarcadas] = useState([]); const [concluidas, setConcluidas] = useState(false); const [qtd, setQtd] = useState(15); const [busy, setBusy] = useState(false);
+  const cand = ordenar(ctx.atividades.filter(a => a.localId !== local.id && (concluidas || a.status !== "concluida")
+    && (!busca || a.titulo.toLowerCase().includes(busca.toLowerCase()))));
+  const tog = id => setMarcadas(m => m.includes(id) ? m.filter(x => x !== id) : [...m, id]);
+  async function salvar() {
+    setBusy(true);
+    try { for (const id of marcadas) await ctx.store.save("atividades", id, { localId: local.id, atualizadoEm: Date.now() }); ctx.notificar(`${marcadas.length} atividade${marcadas.length > 1 ? "s vinculadas" : " vinculada"} a ${local.nome}`); onClose(); }
+    catch (e) { ctx.notificar(traduzErro(e)); }
+    setBusy(false);
+  }
+  return (
+    <Modal sm titulo={`Vincular atividades a ${local.nome}`} onClose={onClose}
+      rodape={<><span className="small muted grow">{marcadas.length} selecionada{marcadas.length !== 1 ? "s" : ""}</span><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri" disabled={!marcadas.length || busy} onClick={salvar}>{busy ? "Salvando..." : "Vincular"}</button></>}>
+      <div className="row" style={{ gap: 10, marginBottom: 10 }}>
+        <input className="grow" autoFocus value={busca} onChange={e => { setBusca(e.target.value); setQtd(15); }} placeholder="Buscar atividade..." style={{ padding: "9px 11px", border: "1px solid var(--line)", borderRadius: 9, outline: "none" }} />
+        <label className="small row" style={{ gap: 6, whiteSpace: "nowrap", cursor: "pointer" }}><input type="checkbox" checked={concluidas} onChange={e => setConcluidas(e.target.checked)} />Incluir concluídas</label>
+      </div>
+      <div className="list">
+        {cand.length === 0 && <div className="empty small">Nenhuma atividade disponível. Crie uma em "Nova atividade aqui".</div>}
+        {cand.slice(0, qtd).map(a => { const atual = a.localId && ctx.mapL[a.localId]; const on = marcadas.includes(a.id); return (
+          <label key={a.id} className="lrow" style={{ cursor: "pointer", background: on ? "#f0fdf4" : undefined }}>
+            <input type="checkbox" checked={on} onChange={() => tog(a.id)} style={{ width: 18, height: 18, accentColor: "var(--pri)" }} />
+            <div className="grow" style={{ minWidth: 0 }}><div className="ell" style={{ fontWeight: 600 }}>{a.titulo}</div>
+              <div className="small muted ell">{nomesResp(a, ctx)}{atual ? ` · hoje em ${atual.nome}` : " · sem local"}</div></div>
+            <PrazoChip a={a} />
+          </label>); })}
+      </div>
+      {cand.length > qtd && <button className="btn sm" style={{ marginTop: 10 }} onClick={() => setQtd(qtd + 15)}>Ver mais ({cand.length - qtd})</button>}
+      <div className="small muted" style={{ marginTop: 10 }}>Se a atividade já estiver em outro local, ela passa para {local.nome}.</div>
+    </Modal>
   );
 }
 
